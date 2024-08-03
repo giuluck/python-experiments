@@ -9,7 +9,7 @@ import re
 import shutil
 import time
 from abc import abstractmethod
-from typing import Any, Dict, List, Iterable
+from typing import Any, Dict, List, Iterable, Set
 
 import pandas as pd
 import yaml
@@ -52,6 +52,7 @@ class Experiment:
             self._execution_time: str = execution_time
             self._elapsed_time: float = elapsed_time
             self._results: Dict[str, Any] = {}
+            self._missing_files: Set[str] = {'main', *{filename for filename in experiment.files.values()}}
 
         @property
         def signature(self) -> Dict[str, Any]:
@@ -68,18 +69,37 @@ class Experiment:
             """The time (in seconds) that it took to execute the run."""
             return self._elapsed_time
 
+        def results(self, complete: bool = False) -> Dict[str, Any]:
+            """Returns the results of the run.
+
+            :param complete:
+                If True, loads all the results from all the files, otherwise returns just the already loaded results.
+
+            :return:
+                A dictionary containing the (partial or complete) results of the run.
+            """
+            if complete:
+                for filename in list(self._missing_files):
+                    self._load(filename)
+            return self._results
+
         def __getitem__(self, item: str) -> Any:
             value = self._results.get(item)
             if value is None:
-                folder = self._experiment.run_folder(key=self._key)
                 filename = self._experiment.files.get(item)
                 filename = 'main' if filename is None else filename
-                filepath = os.path.join(folder, f'{filename}.pkl')
-                with open(filepath, 'rb') as file:
-                    content = pickle.load(file=file)
-                self._results.update(content)
+                content = self._load(filename=filename)
                 value = content[item]
             return value
+
+        def _load(self, filename: str) -> Dict[str, Any]:
+            # get the folder of the run, load the results, and update the results dictionary accordingly
+            folder = self._experiment.run_folder(key=self._key)
+            filepath = os.path.join(folder, f'{filename}.pkl')
+            with open(filepath, 'rb') as file:
+                content = pickle.load(file=file)
+            self._results.update(content)
+            return content
 
     files: Dict[str, str] = {}
     """Dictionary which associates a filename to each result key. E.g., if the routine returns keys {'alpha', 'beta'} 
@@ -99,6 +119,25 @@ class Experiment:
         """
         pass
 
+    # noinspection PyUnusedLocal
+    @staticmethod
+    def superset(super_signature: Dict[str, Any], **signature: Any) -> bool:
+        """Checks whether the given run configuration is from a superset run of the given signature. A superset run is
+        a run that has different parameters than the given one but still contains all the necessary information. For
+        example, a run where a machine learning model is trained for 200 epochs is a superset run of a run where the
+        same model is trained for 100 epochs (but not vice versa).
+
+        :param super_signature:
+            The configuration of the run to check as superset.
+
+        :param signature:
+            The signature of the run taken into consideration as subset.
+
+        :return:
+            Whether the run is superset or not of the signature.
+        """
+        return False
+
     @staticmethod
     def sha256(obj: Any) -> str:
         """Computes a stable hash of an object using the SHA256 algorithm.
@@ -114,16 +153,23 @@ class Experiment:
         algorithm.update(buffer)
         return algorithm.hexdigest()
 
-    def __init__(self, name: str, folder: str = 'results'):
+    def __init__(self, name: str, folder: str = 'results', check_superset: bool = False):
         """
         :param name:
             The name of the experiment.
 
         :param folder:
             The folder where the experiment will be stored.
+
+        :param check_superset:
+            Whether to check for the presence of superset runs based on the 'similar' static function. A superset run
+            is a run that has different parameters than the given one but still contains all the necessary information.
+            For example, a run where a machine learning model is trained for 200 epochs is a superset run of a run
+            where the same model is trained for 100 epochs (but not vice versa).
         """
         self._name: str = name
         self._folder: str = folder
+        self._check_superset: bool = check_superset
 
     @property
     def output_file(self) -> str:
@@ -167,6 +213,18 @@ class Experiment:
             signature = {k: v for k, v in zip(names, values)}
             key = self.sha256(obj={k: v.configuration if isinstance(v, Item) else v for k, v in signature.items()})
             run = runs.get(key)
+            # if the run was not found but the possibility to check for superset is allowed, browse all the loaded runs
+            if run is None and self._check_superset:
+                for super_key, super_run in runs.items():
+                    super_signature = super_run['signature']
+                    if self.superset(super_signature=super_signature, **signature):
+                        # check that the superset run is not outdated, otherwise it will mess up with the key
+                        # this way we duplicate the check, but we are sure that everything has the correct key
+                        # also we assume that there can be up to one superset run per experiment, so we break anyway
+                        if not self._outdated(signature=signature, execution_time=super_run['execution_time']):
+                            key = super_key
+                            run = super_run
+                        break
             # in case there is no run, or the run is outdated, execute it and save it in the dictionary
             # the overwrite the output file with the configuration of all the executed runs
             # (dump the file before writing to check that it is yaml-compliant)
