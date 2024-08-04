@@ -17,6 +17,11 @@ class Item:
         """A dictionary of parameters which uniquely identifies the item."""
         pass
 
+    def __eq__(self, other: Any) -> bool:
+        if other is self:
+            return True
+        return isinstance(other, self.__class__) and self.configuration == other.configuration
+
     def __repr__(self):
         configuration = ', '.join([f'{key}={value}' for key, value in self.configuration.items()])
         return f"{self.__class__.__name__}({configuration})"

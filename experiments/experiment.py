@@ -15,7 +15,7 @@ import pandas as pd
 import yaml
 from tqdm import tqdm
 
-from src.items.item import Item
+from items.item import Item
 
 
 class Experiment:
@@ -211,33 +211,38 @@ class Experiment:
         for i, values in signatures:
             # check whether the run has been already executed by looking for its key
             signature = {k: v for k, v in zip(names, values)}
-            key = self.sha256(obj={k: v.configuration if isinstance(v, Item) else v for k, v in signature.items()})
+            signature_dump = {k: v.configuration if isinstance(v, Item) else v for k, v in signature.items()}
+            key = self.sha256(obj=signature_dump)
             run = runs.get(key)
-            # if the run was not found but the possibility to check for superset is allowed, browse all the loaded runs
-            if run is None and self._check_superset:
-                for super_key, super_run in runs.items():
-                    super_signature = super_run['signature'].copy()
-                    if self.superset(super_signature=super_signature, **signature):
-                        # check that the superset run is not outdated, otherwise it will mess up with the key
-                        # this way we duplicate the check, but we are sure that everything has the correct key
-                        # also we assume that there can be up to one superset run per experiment, so we break anyway
-                        if not self._outdated(signature=signature, execution_time=super_run['execution_time']):
+            # in case there is no run, or the run is outdated, try to look for a superset run
+            # in case the search is, browse all the loaded runs until a matching one is found
+            if run is None or self._outdated(signature=signature, run=run):
+                run = None
+                if self._check_superset:
+                    for super_key, super_run in runs.items():
+                        super_signature = super_run['signature'].copy()
+                        is_superset = self.superset(super_signature=super_signature, **signature_dump)
+                        if is_superset and not self._outdated(signature=signature, run=super_run):
                             key = super_key
                             run = super_run
-                        break
-            # in case there is no run, or the run is outdated, execute it and save it in the dictionary
-            # the overwrite the output file with the configuration of all the executed runs
+                            break
+            # in case there is still no run (no exact match or no superset run), build the result by executing it
+            # then overwrite the output file with the configuration of all the executed runs
             # (dump the file before writing to check that it is yaml-compliant)
-            if run is None or self._outdated(signature=signature, execution_time=run['execution_time']):
+            if run is None:
                 if verbose:
                     print(flush=True)
                     print(f'Running Experiment {i + 1} of {total}:')
                     for parameter, value in signature.items():
                         print(f'  > {parameter.upper()}: {value}')
                     print(end='', flush=True)
-                run = self._run(key=key, signature=signature, overwrite=overwrite)
-                runs[key] = run
+                execution_time = str(pd.Timestamp.now())
+                elapsed_time = self._run(key=key, signature=signature, overwrite=overwrite)
+                runs[key] = dict(signature=signature_dump, execution_time=execution_time, elapsed_time=elapsed_time)
                 self._store(runs=runs)
+            else:
+                execution_time = run['execution_time']
+                elapsed_time = run['elapsed_time']
             # build a run instance using the obtained information and:
             #  - append the run itself to the output list
             #  - insert or overwrite the configuration in the list of loaded runs
@@ -245,19 +250,19 @@ class Experiment:
                 key=key,
                 experiment=self,
                 signature=signature,
-                execution_time=run['execution_time'],
-                elapsed_time=run['elapsed_time']
+                execution_time=execution_time,
+                elapsed_time=elapsed_time
             )
             output.append(output_run)
         # return the list of runs
         return output
 
     @staticmethod
-    def _outdated(signature: Dict[str, Any], execution_time: str) -> bool:
+    def _outdated(signature: Dict[str, Any], run: Dict[str, Any]) -> bool:
         # check if the execution time of the run is outdated with respect to any of its items component
-        execution_time = pd.Timestamp(execution_time)
+        run = pd.Timestamp(run['execution_time'])
         for item in signature.values():
-            if isinstance(item, Item) and pd.Timestamp(item.last_edit()) > execution_time:
+            if isinstance(item, Item) and pd.Timestamp(item.last_edit()) > run:
                 return True
         return False
 
@@ -286,9 +291,8 @@ class Experiment:
         with open(self.output_file, 'w') as file:
             file.write(dump)
 
-    def _run(self, key: str, signature: Dict[str, Any], overwrite: bool) -> Dict[str, Any]:
+    def _run(self, key: str, signature: Dict[str, Any], overwrite: bool) -> float:
         # run the routine to get the results and store the elapsed time
-        execution_time = pd.Timestamp.now()
         start = time.time()
         results = self.routine(**signature)
         elapsed_time = time.time() - start
@@ -319,11 +323,7 @@ class Experiment:
             with open(filepath, 'wb') as file:
                 file.write(dump)
         # return a dictionary containing the configuration of the run
-        return dict(
-            signature={k: v.configuration if isinstance(v, Item) else v for k, v in signature.items()},
-            execution_time=str(execution_time),
-            elapsed_time=elapsed_time
-        )
+        return elapsed_time
 
     def clear(self,
               *conditions: str,
@@ -348,7 +348,10 @@ class Experiment:
         """
         # retrieve the runs from the experiment file, and retrieve all the names of the subfolders related to the runs
         runs = self._load()
-        keys = list(os.listdir(os.path.join(self._folder, self._name)))
+        filepath = os.path.join(self._folder, self._name)
+        if not os.path.isdir(filepath):
+            return
+        keys = list(os.listdir(filepath))
         if verbose:
             print(f"Retrieved {len(keys)} experiments.")
         # create a dictionary of output runs, and a list of folders to be removed
@@ -380,7 +383,7 @@ class Experiment:
         elif verbose:
             print(f"Removing {len(keys) - len(outputs)} ({len(outputs)} left)\n")
         # remove all the subfolders of the deleted runs, then store the output file
-        for folder in tqdm(folders, desc="Removing runs folders"):
+        for folder in tqdm(folders, desc="Removing Folders"):
             shutil.rmtree(folder)
         self._store(runs=outputs)
 
