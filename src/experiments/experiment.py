@@ -9,7 +9,7 @@ import re
 import shutil
 import time
 from abc import abstractmethod
-from typing import Any, Dict, List, Iterable, Set
+from typing import Any, Dict, List, Iterable, Set, Union, Optional
 
 import pandas as pd
 import yaml
@@ -216,7 +216,7 @@ class Experiment:
             # if the run was not found but the possibility to check for superset is allowed, browse all the loaded runs
             if run is None and self._check_superset:
                 for super_key, super_run in runs.items():
-                    super_signature = super_run['signature']
+                    super_signature = super_run['signature'].copy()
                     if self.superset(super_signature=super_signature, **signature):
                         # check that the superset run is not outdated, otherwise it will mess up with the key
                         # this way we duplicate the check, but we are sure that everything has the correct key
@@ -237,16 +237,7 @@ class Experiment:
                     print(end='', flush=True)
                 run = self._run(key=key, signature=signature, overwrite=overwrite)
                 runs[key] = run
-                # Code to insert a blank like between every top level object in yaml, taken from:
-                # https://stackoverflow.com/questions/75535768/how-to-add-blank-lines-before-list-blocks-with-python-yaml-dump-pyyaml
-                dump = yaml.dump(runs, indent=2, default_flow_style=False, sort_keys=False)
-                main_keys = re.compile(r"(\n\w+)")
-                next_blocks = re.compile(r"(?<!:)(\n {0,6}- )")
-                double_newline = lambda m: f"\n{m.group(1)}"  # noqa: E731
-                dump, _ = re.subn(main_keys, double_newline, dump)
-                dump, _ = re.subn(next_blocks, double_newline, dump)
-                with open(self.output_file, 'w') as file:
-                    file.write(dump)
+                self._store(runs=runs)
             # build a run instance using the obtained information and:
             #  - append the run itself to the output list
             #  - insert or overwrite the configuration in the list of loaded runs
@@ -280,6 +271,20 @@ class Experiment:
         else:
             os.makedirs(self._folder, exist_ok=True)
         return runs
+
+    def _store(self, runs: Dict[str, Any]) -> None:
+        # dump the runs as a yaml file
+        dump = yaml.dump(runs, indent=2, default_flow_style=False, sort_keys=False)
+        # code to insert a blank like between every top level object in yaml, taken from:
+        # https://stackoverflow.com/questions/75535768/how-to-add-blank-lines-before-list-blocks-with-python-yaml-dump-pyyaml
+        main_keys = re.compile(r"(\n\w+)")
+        next_blocks = re.compile(r"(?<!:)(\n {0,6}- )")
+        double_newline = lambda m: f"\n{m.group(1)}"
+        dump, _ = re.subn(main_keys, double_newline, dump)
+        dump, _ = re.subn(next_blocks, double_newline, dump)
+        # write the output file with the configurations
+        with open(self.output_file, 'w') as file:
+            file.write(dump)
 
     def _run(self, key: str, signature: Dict[str, Any], overwrite: bool) -> Dict[str, Any]:
         # run the routine to get the results and store the elapsed time
@@ -319,3 +324,88 @@ class Experiment:
             execution_time=str(execution_time),
             elapsed_time=elapsed_time
         )
+
+    def clear(self,
+              *conditions: str,
+              older: Union[None, str, pd.Timestamp] = None,
+              force: bool = False,
+              verbose: bool = True) -> None:
+        """Clears the results based on some given conditions.
+
+        :param conditions:
+            Strings of type "<item>[:<subkey>:<subsubkey>:...] = <value>" where <item> is the name of the item to check,
+            potentially adding various subkeys separated by ':' to refine the search, and <value> is a single value
+            which must match the item/subkey that is found in the signature of the run.
+
+        :param older:
+            A datetime element before which all the runs will be removed (ignores the condition if None).
+
+        :param force:
+            Whether to remove all the runs automatically or ask for confirmation.
+
+        :param verbose:
+            Whether to print additional information about the retrieval.
+        """
+        # retrieve the runs from the experiment file, and retrieve all the names of the subfolders related to the runs
+        runs = self._load()
+        keys = list(os.listdir(os.path.join(self._folder, self._name)))
+        if verbose:
+            print(f"Retrieved {len(keys)} experiments.")
+        # create a dictionary of output runs, and a list of folders to be removed
+        outputs = {}
+        folders = []
+        older = None if older is None else pd.Timestamp(older)
+        # iterate over each subfolder
+        for key in keys:
+            # retrieve the run which corresponds to the key
+            folder = self.run_folder(key=key)
+            run = runs.get(key)
+            # if the key has to be removed append its folder to the list, otherwise include it in the dictionary
+            if self._remove(run=run, older=older, conditions=conditions):
+                folders.append(folder)
+            else:
+                outputs[key] = run
+        # if not force ask for confirmation (if the answer is not 'y' or 'yes', abort)
+        # otherwise print a message if necessary
+        if not force:
+            msg = f"\nAre you sure you want to remove {len(keys) - len(outputs)} experiments, "
+            msg += f"leaving {len(outputs)} experiments left? (Y/N) "
+            choice = input(msg)
+            if choice.lower() not in ['y', 'yes']:
+                if verbose:
+                    print(f"\nClearing procedure aborted\n")
+                return
+            elif verbose:
+                print(f"\nClearing procedure started\n")
+        elif verbose:
+            print(f"Removing {len(keys) - len(outputs)} ({len(outputs)} left)\n")
+        # remove all the subfolders of the deleted runs, then store the output file
+        for folder in tqdm(folders, desc="Removing runs folders"):
+            shutil.rmtree(folder)
+        self._store(runs=outputs)
+
+    @staticmethod
+    def _remove(run: Dict[str, Any], older: Optional[pd.Timestamp], conditions: Iterable[str]) -> bool:
+        # remove a key if:
+        #  - there is no associated run (i.e., the folder is orphan)
+        #  - the run is too old and all the conditions are true
+        if run is None:
+            return True
+        if older is not None and pd.Timestamp(run['execution_time']) > older:
+            return False
+        signature = run['signature']
+        for condition in conditions:
+            # split between <item> and <value> using the '=' symbol
+            item, value = condition.split('=')
+            item = str(item).strip()
+            value = str(value).strip()
+            # find the keys and subkeys of the items by splitting using the ':' symbol
+            # then browse through the signature using the keys/subkeys
+            keys = item.split(':')
+            parameter = signature
+            for key in keys:
+                parameter = parameter[key]
+            # compare the string version of the retrieved parameter with the value
+            if str(parameter) != value:
+                return False
+        return True
