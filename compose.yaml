@@ -1,0 +1,4 @@
+services:
+  main:
+    image: python-experiments
+    build: .
