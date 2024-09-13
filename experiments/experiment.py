@@ -4,14 +4,12 @@ import json
 import logging
 import os
 import pickle
-import re
 import shutil
 import time
 from abc import abstractmethod
 from typing import Any, Dict, Iterable, Union, Optional, Literal, List
 
 import pandas as pd
-import yaml
 from tqdm import tqdm
 
 from items.item import Item
@@ -86,7 +84,7 @@ class Experiment:
         :return:
             The path of the experiment output file.
         """
-        return os.path.join(folder, cls.alias(), '_experiments.yaml')
+        return os.path.join(folder, cls.alias(), 'experiments.pkl')
 
     @classmethod
     def get_external_folder(cls, folder: str, key: str) -> str:
@@ -136,7 +134,7 @@ class Experiment:
     def files(self) -> Dict[str, str]:
         """Dictionary which associates a filename to each result key. E.g., if the results have keys {'alpha', 'beta'}
         then one might indicate {'alpha': 'file_alpha', 'beta': 'file_beta'} to store each key in a different file. If
-        a key is returned by the routine but is not present in this dictionary, it is stored in the main yaml file."""
+        a key is returned by the routine but is not present in this dictionary, it is stored in the main pickle file."""
         return dict()
 
     @property
@@ -147,7 +145,7 @@ class Experiment:
 
     @property
     def _internal_results(self) -> Dict[str, Any]:
-        """The dictionary of results which are stored in the main yaml file."""
+        """The dictionary of results which are stored in the main pickle file."""
         assert self._built is not None, "The experiment has not been built yet."
         return self._built['internal']
 
@@ -175,7 +173,7 @@ class Experiment:
 
     @property
     def dump(self) -> Dict[str, Any]:
-        """The yaml-compliant dump of the experiment, containing signature and main results."""
+        """The dictionary dump of the experiment, containing signature and main results."""
         return dict(
             signature=self.signature,
             elapsed_time=self.elapsed_time,
@@ -268,9 +266,9 @@ class Experiment:
         self._external_results.clear()
 
     def get(self, name: str, cache: bool = False) -> Any:
-        """Retrieves a result given its name. The result can be stored in the main yaml file or in one of the external
-        files. In the first case, the value is simply returned, otherwise it the external file has not been loaded yet,
-        it is loaded and optionally cached for future accesses in case 'cache' is True.
+        """Retrieves a result given its name. The result can be stored in the main pickle file or in one of the
+        external files. In the first case, the value is simply returned, otherwise it the external file has not been
+        loaded yet, it is loaded and optionally cached for future accesses in case 'cache' is True.
 
         :param name:
             The name of the result to retrieve.
@@ -400,8 +398,8 @@ class Experiment:
         dumps = {}
         filepath = cls.get_output_file(folder=folder)
         if os.path.isfile(filepath):
-            with open(filepath, 'r') as file:
-                dumps = yaml.safe_load(file)
+            with open(filepath, 'rb') as file:
+                dumps = pickle.load(file)
         else:
             exp_folder = os.path.dirname(filepath)
             os.makedirs(exp_folder, exist_ok=True)
@@ -417,18 +415,11 @@ class Experiment:
         :param dumps:
             A dictionary {index: signature} containing the signature of each experiment indexed by their key.
         """
-        # dump the experiments as a yaml file
-        dump = yaml.dump(dumps, indent=2, default_flow_style=None, sort_keys=False, width=float('inf'))
-        # code to insert a blank like between every top level object in yaml, taken from:
-        # https://stackoverflow.com/questions/75535768/how-to-add-blank-lines-before-list-blocks-with-python-yaml-dump-pyyaml
-        main_keys = re.compile(r"(\n\w+)")
-        next_blocks = re.compile(r"(?<!:)(\n {0,6}- )")
-        double_newline = lambda m: f"\n{m.group(1)}"
-        dump, _ = re.subn(main_keys, double_newline, dump)
-        dump, _ = re.subn(next_blocks, double_newline, dump)
+        # dump the experiments as a pickle file
+        dump = pickle.dumps(dumps)
         # write the output file with the configurations
         filepath = cls.get_output_file(folder=folder)
-        with open(filepath, 'w') as file:
+        with open(filepath, 'wb') as file:
             file.write(dump)
 
     @classmethod
@@ -443,7 +434,7 @@ class Experiment:
         elapsed_time = time.time()
         results = cls.routine(experiment=experiment)
         elapsed_time = time.time() - elapsed_time
-        # splits the results into internal (stored directly in the yaml file) and external (stored as separate pickles)
+        # splits the results into internal (stored directly in the main file) and external (stored as separate pickles)
         split_results = dict(internal={}, external={})
         for k, v in results.items():
             split_results['external' if k in experiment.files else 'internal'][k] = v
