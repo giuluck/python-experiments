@@ -7,7 +7,7 @@ import pickle
 import shutil
 import time
 from abc import abstractmethod
-from typing import Any, Dict, Iterable, Union, Optional, Literal, List
+from typing import Any, Dict, Iterable, Union, Optional, Literal, List, Tuple
 
 import pandas as pd
 from tqdm import tqdm
@@ -443,6 +443,57 @@ class Experiment:
         experiment.update(flush=True, **split_results['external'])
 
     @classmethod
+    def inspection(cls, folder: str, show: bool = True, export: Iterable[Literal['csv', 'json']] = ()) -> pd.DataFrame:
+        """Inspects the signatures of the run experiments.
+
+        :param folder:
+            The folder where results are stored.
+
+        :param show:
+            Whether to print the dataframe of retrieved signatures on screen.
+
+        :param export:
+            The extension of the export files ('csv' or 'json') containing the signatures of the experiments.0
+        """
+
+        # recursively flatten a dictionary using tuples as keys
+        def flatten(dictionary: Dict[str, Any], parent: Iterable[str] = ()) -> Dict[Tuple[str, ...], Any]:
+            output = dict()
+            parent = tuple(parent)
+            for key, value in dictionary.items():
+                new_parent = (*parent, key)
+                if isinstance(value, dict):
+                    output = {**output, **flatten(dictionary=value, parent=new_parent)}
+                else:
+                    output[new_parent] = value
+            return output
+
+        # retrieve and flatten the signatures of the experiments (if they exist)
+        filepath = os.path.join(folder, cls.alias())
+        if not os.path.isdir(filepath):
+            return pd.DataFrame()
+        signatures = [flatten({'key': key, **exp['signature']}) for key, exp in cls.load(folder=folder).items()]
+        # if a json export is required, dump a json file with the signatures
+        # use ':' to create a single string key by joining the tuples
+        if 'json' in export:
+            filepath = os.path.join(folder, f'{cls.alias()}.json')
+            json.dump([{':'.join(k): v for k, v in s.items()} for s in signatures], fp=open(filepath, 'w'), indent=2)
+        # set the index, then use the same tuple length for each column to build a multi-column
+        signatures = pd.DataFrame(signatures).set_index(('key',))
+        signatures.index.name = None
+        length = max([len(column) for column in signatures.columns])
+        columns = [column + ('',) * (length - len(column)) for column in signatures.columns]
+        signatures.columns = pd.MultiIndex.from_tuples(columns)
+        # if a csv export is required, export the built dataframe
+        if 'csv' in export:
+            filepath = os.path.join(folder, f'{cls.alias()}.csv')
+            signatures.to_csv(filepath)
+        # if a print is required, print the whole dataset (use the 'to_string' method to avoid ellipses)
+        if show:
+            print(signatures.to_string(sparsify=False))
+        return signatures
+
+    @classmethod
     def clear(cls,
               *conditions: str,
               folder: str,
@@ -543,7 +594,10 @@ class Experiment:
             keys = item.split(':')
             parameter = signature
             for key in keys:
-                parameter = parameter[key]
+                if isinstance(parameter, dict) and key in parameter:
+                    parameter = parameter[key]
+                else:
+                    return False
             # compare the string version of the retrieved parameter with the value
             if str(parameter) != value:
                 return False
