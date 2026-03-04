@@ -1,0 +1,32 @@
+[project]
+name = 'project-name'
+version = '0.1.0'
+requires-python = '>=3.8'
+dependencies = [
+    "numpy>=1.24.4",
+    "pandas>=2.0.3",
+    "tqdm>=4.67.3",
+]
+description = 'project-description'
+readme = { file = 'README.md', content-type = 'text/markdown' }
+authors = [
+    { name = 'Luca Giuliani', email = 'giuluck9@gmail.com' }
+]
+maintainers = [
+    { name = 'Luca Giuliani', email = 'giuluck9@gmail.com' }
+]
+license = 'MIT'
+classifiers = [
+    'Development Status :: 3 - Alpha',
+    'Programming Language :: Python',
+    'Operating System :: OS Independent'
+]
+
+[tool.ruff]
+line-length = 120
+indent-width = 4
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"

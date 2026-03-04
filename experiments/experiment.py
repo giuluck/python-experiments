@@ -26,7 +26,7 @@ class Experiment:
 
     @classmethod
     @abstractmethod
-    def routine(cls, experiment: 'Experiment') -> Dict[str, Any]:
+    def routine(cls, experiment: "Experiment") -> Dict[str, Any]:
         """Defines the routine of the experiment.
 
         :param experiment:
@@ -84,7 +84,7 @@ class Experiment:
         :return:
             The path of the experiment output file.
         """
-        return os.path.join(folder, cls.alias(), 'experiments.pkl')
+        return os.path.join(folder, cls.alias(), "experiments.pkl")
 
     @classmethod
     def get_external_folder(cls, folder: str, key: str) -> str:
@@ -124,11 +124,7 @@ class Experiment:
             The internal results of the experiment.
         """
         assert self._built is None, "Experiment has been already built."
-        self._built = dict(
-            execution=execution_time,
-            elapsed=elapsed_time,
-            internal=results
-        )
+        self._built = dict(execution=execution_time, elapsed=elapsed_time, internal=results)
 
     @property
     def files(self) -> Dict[str, str]:
@@ -147,19 +143,19 @@ class Experiment:
     def _internal_results(self) -> Dict[str, Any]:
         """The dictionary of results which are stored in the main pickle file."""
         assert self._built is not None, "The experiment has not been built yet."
-        return self._built['internal']
+        return self._built["internal"]
 
     @property
     def execution_time(self) -> str:
         """A timestamp which indicates when was the experiment executed."""
         assert self._built is not None, "The experiment has not been built yet."
-        return self._built['execution']
+        return self._built["execution"]
 
     @property
     def elapsed_time(self) -> float:
         """The time (in seconds) that it took to execute the experiment."""
         assert self._built is not None, "The experiment has not been built yet."
-        return self._built['elapsed']
+        return self._built["elapsed"]
 
     @property
     def key(self) -> str:
@@ -178,7 +174,7 @@ class Experiment:
             signature=self.signature,
             elapsed_time=self.elapsed_time,
             execution_time=self.execution_time,
-            results=self.results(load='internal')
+            results=self.results(load="internal"),
         )
 
     @property
@@ -226,20 +222,20 @@ class Experiment:
         if len(files) > 0:
             os.makedirs(folder, exist_ok=True)
         for filename, content in files.items():
-            filepath = os.path.join(folder, f'{filename}.pkl')
+            filepath = os.path.join(folder, f"{filename}.pkl")
             if os.path.exists(filepath):
-                with open(filepath, 'rb') as file:
+                with open(filepath, "rb") as file:
                     previous_content = pickle.load(file=file)
                 content = {**previous_content, **content}
             dump = pickle.dumps(content)
-            with open(filepath, 'wb') as file:
+            with open(filepath, "wb") as file:
                 file.write(dump)
         # if the results must not be flushed, store them in the internal cache, then return the experiment itself
         if not flush:
             self._external_results.update(results)
         return
 
-    def results(self, load: Literal['internal', 'cached', 'all'] = 'all') -> Dict[str, Any]:
+    def results(self, load: Literal["internal", "cached", "all"] = "all") -> Dict[str, Any]:
         """Returns the results of the experiment.
 
         :param load:
@@ -250,11 +246,11 @@ class Experiment:
         :return:
             A dictionary containing the (partial or complete) results of the experiment.
         """
-        if load == 'internal':
+        if load == "internal":
             external = {}
-        elif load == 'cached':
+        elif load == "cached":
             external = {key: self._external_results.get(key) for key in self.files.keys()}
-        elif load == 'all':
+        elif load == "all":
             external = {key: self.get(name=key, cache=True) for key in self.files.keys()}
         else:
             raise AttributeError(f'Parameter "load" must be either "internal", "cached", or "all", got "{load}"')
@@ -287,10 +283,10 @@ class Experiment:
             # get the folder of the experiment
             value = None
             filename = self.files[name]
-            filepath = os.path.join(self.external_folder, f'{filename}.pkl')
+            filepath = os.path.join(self.external_folder, f"{filename}.pkl")
             # if it exists, load the results and update the external results dictionary if necessary
             if os.path.isfile(filepath):
-                with open(filepath, 'rb') as file:
+                with open(filepath, "rb") as file:
                     content = pickle.load(file=file)
                 if cache:
                     self._external_results.update(content)
@@ -301,11 +297,9 @@ class Experiment:
         return self.get(name=item, cache=True)
 
     @classmethod
-    def execute(cls,
-                folder: str,
-                verbose: Optional[bool] = False,
-                save_time: Optional[float] = 60,
-                **parameters: Any) -> dict:
+    def execute(
+        cls, folder: str, verbose: Optional[bool] = False, save_time: Optional[float] = 60, **parameters: Any
+    ) -> dict:
         """Executes many experiment using a factorial design.
 
         :param folder:
@@ -335,7 +329,7 @@ class Experiment:
         to_save = False
         last_save = time.time()
         signatures = cls.signatures(**parameters)
-        iterable = tqdm(signatures.items(), desc='Fetching Experiments') if verbose is False else signatures.items()
+        iterable = tqdm(signatures.items(), desc="Fetching Experiments") if verbose is False else signatures.items()
         # iterate over every signature to execute
         for i, (index, signature) in enumerate(iterable):
             # noinspection PyArgumentList
@@ -345,7 +339,7 @@ class Experiment:
             #    > if outdated, remove both its entry in the main file and its results from the external folder
             dump = dumps.get(exp.key)
             if dump is not None:
-                edit = pd.Timestamp(dump['execution_time'])
+                edit = pd.Timestamp(dump["execution_time"])
                 for item in signature.values():
                     if isinstance(item, Item) and pd.Timestamp(item.last_edit()) > edit:
                         dump = None
@@ -353,7 +347,7 @@ class Experiment:
                         ext_folder = exp.external_folder
                         if os.path.isdir(ext_folder):
                             shutil.rmtree(ext_folder)
-                            logging.info(f'Removing experiment {exp.key} ({edit}) due to {item} ({item.last_edit()})')
+                            logging.info(f"Removing experiment {exp.key} ({edit}) due to {item} ({item.last_edit()})")
                         break
             # in case there is no valid experiment retrieved (no match or outdated match):
             #  - print information if necessary
@@ -364,10 +358,10 @@ class Experiment:
             if dump is None:
                 if verbose:
                     print(flush=True)
-                    print(f'Running Experiment {i + 1} of {len(signatures)}:')
+                    print(f"Running Experiment {i + 1} of {len(signatures)}:")
                     for parameter, value in signature.items():
-                        print(f'  > {parameter.upper()}: {value}')
-                    print(end='', flush=True)
+                        print(f"  > {parameter.upper()}: {value}")
+                    print(end="", flush=True)
                 to_save = True
                 cls.run(experiment=exp)
                 dumps[exp.key] = exp.dump
@@ -376,7 +370,7 @@ class Experiment:
                     last_save = time.time()
                     cls.store(folder=folder, dumps=dumps)
             else:
-                exp._build(**{k: v for k, v in dump.items() if k != 'signature'})
+                exp._build(**{k: v for k, v in dump.items() if k != "signature"})
             # add the exp to the output dictionary using the appropriate index
             experiments[index] = exp
         # store the experiment dumps if necessary and return the dictionary of output experiments
@@ -398,7 +392,7 @@ class Experiment:
         dumps = {}
         filepath = cls.get_output_file(folder=folder)
         if os.path.isfile(filepath):
-            with open(filepath, 'rb') as file:
+            with open(filepath, "rb") as file:
                 dumps = pickle.load(file)
         else:
             exp_folder = os.path.dirname(filepath)
@@ -419,11 +413,11 @@ class Experiment:
         dump = pickle.dumps(dumps)
         # write the output file with the configurations
         filepath = cls.get_output_file(folder=folder)
-        with open(filepath, 'wb') as file:
+        with open(filepath, "wb") as file:
             file.write(dump)
 
     @classmethod
-    def run(cls, experiment: 'Experiment') -> None:
+    def run(cls, experiment: "Experiment") -> None:
         """Runs the experiment using its routine, then stores its internal and external results within the instance.
 
         :param experiment:
@@ -437,13 +431,13 @@ class Experiment:
         # splits the results into internal (stored directly in the main file) and external (stored as separate pickles)
         split_results = dict(internal={}, external={})
         for k, v in results.items():
-            split_results['external' if k in experiment.files else 'internal'][k] = v
+            split_results["external" if k in experiment.files else "internal"][k] = v
         # builds the experiment instance using the internal results, then updates the external ones
-        experiment._build(execution_time=execution_time, elapsed_time=elapsed_time, results=split_results['internal'])
-        experiment.update(flush=True, **split_results['external'])
+        experiment._build(execution_time=execution_time, elapsed_time=elapsed_time, results=split_results["internal"])
+        experiment.update(flush=True, **split_results["external"])
 
     @classmethod
-    def inspection(cls, folder: str, show: bool = True, export: Iterable[Literal['csv', 'json']] = ()) -> pd.DataFrame:
+    def inspection(cls, folder: str, show: bool = True, export: Iterable[Literal["csv", "json"]] = ()) -> pd.DataFrame:
         """Inspects the signatures of the run experiments.
 
         :param folder:
@@ -472,21 +466,21 @@ class Experiment:
         filepath = os.path.join(folder, cls.alias())
         if not os.path.isdir(filepath):
             return pd.DataFrame()
-        signatures = [flatten({'key': key, **exp['signature']}) for key, exp in cls.load(folder=folder).items()]
+        signatures = [flatten({"key": key, **exp["signature"]}) for key, exp in cls.load(folder=folder).items()]
         # if a json export is required, dump a json file with the signatures
         # use ':' to create a single string key by joining the tuples
-        if 'json' in export:
-            filepath = os.path.join(folder, f'{cls.alias()}.json')
-            json.dump([{':'.join(k): v for k, v in s.items()} for s in signatures], fp=open(filepath, 'w'), indent=2)
+        if "json" in export:
+            filepath = os.path.join(folder, f"{cls.alias()}.json")
+            json.dump([{":".join(k): v for k, v in s.items()} for s in signatures], fp=open(filepath, "w"), indent=2)
         # set the index, then use the same tuple length for each column to build a multi-column
-        signatures = pd.DataFrame(signatures).set_index(('key',))
+        signatures = pd.DataFrame(signatures).set_index(("key",))
         signatures.index.name = None
         length = max([len(column) for column in signatures.columns])
-        columns = [column + ('',) * (length - len(column)) for column in signatures.columns]
+        columns = [column + ("",) * (length - len(column)) for column in signatures.columns]
         signatures.columns = pd.MultiIndex.from_tuples(columns)
         # if a csv export is required, export the built dataframe
-        if 'csv' in export:
-            filepath = os.path.join(folder, f'{cls.alias()}.csv')
+        if "csv" in export:
+            filepath = os.path.join(folder, f"{cls.alias()}.csv")
             signatures.to_csv(filepath)
         # if a print is required, print the whole dataset (use the 'to_string' method to avoid ellipses)
         if show:
@@ -494,12 +488,14 @@ class Experiment:
         return signatures
 
     @classmethod
-    def clear(cls,
-              *conditions: str,
-              folder: str,
-              older: Union[None, str, pd.Timestamp] = None,
-              force: bool = False,
-              verbose: bool = True) -> None:
+    def clear(
+        cls,
+        *conditions: str,
+        folder: str,
+        older: Union[None, str, pd.Timestamp] = None,
+        force: bool = False,
+        verbose: bool = True,
+    ) -> None:
         """Clears the results based on some given conditions.
 
         :param folder:
@@ -547,12 +543,12 @@ class Experiment:
             msg = f"\nAre you sure you want to remove {len(experiments) - len(outputs)} experiments, "
             msg += f"leaving {len(outputs)} experiments left? (Y/N) "
             choice = input(msg)
-            if choice.lower() not in ['y', 'yes']:
+            if choice.lower() not in ["y", "yes"]:
                 if verbose:
-                    print(f"\nClearing procedure aborted\n")
+                    print("\nClearing procedure aborted\n")
                 return
             elif verbose:
-                print(f"\nClearing procedure started\n")
+                print("\nClearing procedure started\n")
         elif verbose:
             print(f"Removing {len(experiments) - len(outputs)} ({len(outputs)} left)\n")
         # remove all the subfolders of the deleted experiments, then store the output file
@@ -581,17 +577,17 @@ class Experiment:
         #  - the run is too old and all the conditions are true
         if dump is None:
             return True
-        if older is not None and pd.Timestamp(dump['execution_time']) > older:
+        if older is not None and pd.Timestamp(dump["execution_time"]) > older:
             return False
-        signature = dump['signature']
+        signature = dump["signature"]
         for condition in conditions:
             # split between <item> and <value> using the '=' symbol
-            item, value = condition.split('=')
+            item, value = condition.split("=")
             item = str(item).strip()
             value = str(value).strip()
             # find the keys and subkeys of the items by splitting using the ':' symbol
             # then browse through the signature using the keys/subkeys
-            keys = item.split(':')
+            keys = item.split(":")
             parameter = signature
             for key in keys:
                 if isinstance(parameter, dict) and key in parameter:

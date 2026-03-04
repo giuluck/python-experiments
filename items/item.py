@@ -23,5 +23,5 @@ class Item:
         return isinstance(other, self.__class__) and self.configuration == other.configuration
 
     def __repr__(self):
-        configuration = ', '.join([f'{key}={value}' for key, value in self.configuration.items()])
+        configuration = ", ".join([f"{key}={value}" for key, value in self.configuration.items()])
         return f"{self.__class__.__name__}({configuration})"
