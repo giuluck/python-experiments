@@ -30,3 +30,13 @@ indent-width = 4
 quote-style = "double"
 indent-style = "space"
 line-ending = "auto"
+
+[tool.pyright]
+typeCheckingMode = "standard"
+reportMissingSuperCall = "error"
+reportInconsistentConstructor = "error"
+reportPrivateImportUsage = "none"
+reportDuplicateImport = "hint"
+reportImportCycles = "warning"
+strictGenericNarrowing = true
+deprecateTypingAliases = true
