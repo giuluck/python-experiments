@@ -35,7 +35,6 @@ line-ending = "auto"
 typeCheckingMode = "standard"
 reportMissingSuperCall = "error"
 reportInconsistentConstructor = "error"
-reportPrivateImportUsage = "none"
 reportDuplicateImport = "hint"
 reportImportCycles = "warning"
 strictGenericNarrowing = true
